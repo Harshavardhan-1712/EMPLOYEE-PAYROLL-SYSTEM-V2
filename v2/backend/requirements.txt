@@ -1,0 +1,18 @@
+# Pinned to versions resolved on Python 3.12 (see README for install)
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+SQLAlchemy==2.1.3
+pydantic==2.13.5
+pydantic-settings==2.15.0
+argon2-cffi==25.1.0
+PyJWT==2.15.1
+python-multipart==0.0.32
+openpyxl==3.1.5
+reportlab==5.0.1
+# test-only
+pytest==9.1.1
+httpx==0.28.1
+# V1 dependency, needed only so the V1 parity test can import V1 payroll.py
+tabulate==0.10.0
+# test-only: extract text from generated PDFs to prove they match the payroll snapshot
+pypdf==6.19.0

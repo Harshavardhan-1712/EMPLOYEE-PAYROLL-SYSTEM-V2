@@ -1,0 +1,18 @@
+@"
+.env
+.env.*
+!.env.example
+!.env.*.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+dist/
+.pytest_cache/
+.coverage
+*.db
+*.sqlite
+*.sqlite3
+.DS_Store
+"@ | Set-Content .gitignore
