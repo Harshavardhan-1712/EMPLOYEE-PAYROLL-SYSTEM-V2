@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, qs } from "../../api/client";
+import {
+  api,
+  ApiError,
+  qs,
+  initializeCsrf,
+} from "../../api/client";
 import type { ImportResult } from "../../api/types";
 import { Alert, Badge, Button, ConfirmDialog, PageHeader, useToast } from "../../components/ds";
 
@@ -17,7 +22,9 @@ export function ImportPage() {
     setBusy(true); setErr(null);
     const form = new FormData(); form.append("file", file);
     try {
-      const r = await api<ImportResult>(`/employees/import${qs({ commit: commit ? "true" : "false" })}`, { method: "POST", form });
+  await initializeCsrf();
+
+  const r = await api<ImportResult>(`/employees/import${qs({ commit: commit ? "true" : "false" })}`, { method: "POST", form });
       setRes(r);
       if (commit) { toast(`${r.imported} employee(s) imported`); setConfirm(false); }
     } catch (e) { setErr(e instanceof ApiError ? e.message : "Unexpected error"); setConfirm(false); if (!commit) setRes(null); }
