@@ -1,4 +1,3 @@
-
 import type { ApiErrorDetail } from "./types";
 
 const BASE =
@@ -19,6 +18,7 @@ export class ApiError extends Error {
 export const AUTH_EXPIRED_EVENT = "pv2:auth-expired";
 
 let csrfTokenValue = "";
+let csrfInitialization: Promise<void> | null = null;
 
 export function setCsrfToken(token: string): void {
   csrfTokenValue = token;
@@ -26,6 +26,7 @@ export function setCsrfToken(token: string): void {
 
 export function clearCsrfToken(): void {
   csrfTokenValue = "";
+  csrfInitialization = null;
 }
 
 interface Opts {
@@ -38,6 +39,59 @@ interface Opts {
 
 interface CsrfResponse {
   csrf_token?: string;
+}
+
+/**
+ * Restore the CSRF token using the authenticated backend session.
+ * Safe to call multiple times; concurrent calls share one request.
+ */
+export async function initializeCsrf(force = false): Promise<void> {
+  if (csrfTokenValue && !force) return;
+
+  if (csrfInitialization) {
+    return csrfInitialization;
+  }
+
+  csrfInitialization = (async () => {
+    const response = await fetch(`${BASE}/api/auth/csrf`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        clearCsrfToken();
+        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+      }
+
+      throw new ApiError(
+        response.status,
+        "csrf_initialization_failed",
+        "Unable to restore your CSRF token. Please log in again."
+      );
+    }
+
+    const data = (await response.json()) as CsrfResponse;
+
+    if (!data.csrf_token || typeof data.csrf_token !== "string") {
+      throw new ApiError(
+        403,
+        "csrf_token_missing",
+        "The server did not return a valid CSRF token."
+      );
+    }
+
+    setCsrfToken(data.csrf_token);
+  })();
+
+  try {
+    await csrfInitialization;
+  } finally {
+    csrfInitialization = null;
+  }
 }
 
 export async function api<T>(
@@ -61,15 +115,22 @@ export async function api<T>(
 
   const unsafe = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
   const isLogin = path.startsWith("/auth/login");
+  const isLogout = path.startsWith("/auth/logout");
 
-  if (unsafe && csrfTokenValue) {
+  if (unsafe && !isLogin && !isLogout) {
+    if (!csrfTokenValue) {
+      await initializeCsrf();
+    }
+
+    if (!csrfTokenValue) {
+      throw new ApiError(
+        403,
+        "csrf_token_missing",
+        "CSRF token is missing. Please log in again."
+      );
+    }
+
     headers["X-CSRF-Token"] = csrfTokenValue;
-  } else if (unsafe && !isLogin && !path.startsWith("/auth/logout")) {
-    throw new ApiError(
-      403,
-      "csrf_token_missing",
-      "CSRF token is missing. Please restore your session and try again."
-    );
   }
 
   let res: Response;
@@ -93,9 +154,7 @@ export async function api<T>(
   }
 
   if (res.status === 204) {
-    if (path.startsWith("/auth/logout")) {
-      clearCsrfToken();
-    }
+    if (isLogout) clearCsrfToken();
     return undefined as T;
   }
 
@@ -141,30 +200,9 @@ export async function api<T>(
     setCsrfToken(responseData.csrf_token);
   }
 
-  if (path.startsWith("/auth/logout")) {
-    clearCsrfToken();
-  }
+  if (isLogout) clearCsrfToken();
 
   return data as T;
-}
-
-/**
- * Restore the CSRF token from the authenticated session.
- * Call before protected POST, PUT, PATCH or DELETE requests
- * if the page has been refreshed.
- */
-export async function initializeCsrf(): Promise<void> {
-  const result = await api<CsrfResponse>("/auth/csrf");
-
-  if (!result?.csrf_token) {
-    throw new ApiError(
-      403,
-      "csrf_token_missing",
-      "Unable to restore the CSRF token. Please log in again."
-    );
-  }
-
-  setCsrfToken(result.csrf_token);
 }
 
 export function qs(
