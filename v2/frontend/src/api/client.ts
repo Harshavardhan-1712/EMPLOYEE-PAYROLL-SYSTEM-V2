@@ -130,7 +130,7 @@ export async function api<T>(
       );
     }
 
-    headers["X-CSRF-Token"] = csrfTokenValue;
+   headers["X-CSRF-Token"] = csrfTokenValue;
   }
 
   let res: Response;
