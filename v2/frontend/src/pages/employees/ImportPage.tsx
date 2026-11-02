@@ -42,6 +42,9 @@ export function ImportPage() {
     try {
       // Restore the CSRF token from the authenticated backend session.
       await initializeCsrf();
+      console.log("IMPORT CSRF CHECK:", {
+  initializationCompleted: true,
+});
 
       // Preview or commit the CSV import.
       const result = await api<ImportResult>(

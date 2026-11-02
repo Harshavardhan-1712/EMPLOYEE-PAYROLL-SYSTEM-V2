@@ -42,17 +42,21 @@ interface CsrfResponse {
 }
 
 /**
- * Restore the CSRF token using the authenticated backend session.
- * Safe to call multiple times; concurrent calls share one request.
+ * Restore CSRF token from the authenticated backend session.
  */
 export async function initializeCsrf(force = false): Promise<void> {
-  if (csrfTokenValue && !force) return;
+  if (csrfTokenValue && !force) {
+    console.log("[CSRF] Token already initialized.");
+    return;
+  }
 
   if (csrfInitialization) {
     return csrfInitialization;
   }
 
   csrfInitialization = (async () => {
+    console.log("[CSRF] Requesting token from backend...");
+
     const response = await fetch(`${BASE}/api/auth/csrf`, {
       method: "GET",
       headers: {
@@ -60,6 +64,8 @@ export async function initializeCsrf(force = false): Promise<void> {
       },
       credentials: "include",
     });
+
+    console.log("[CSRF] Initialization response:", response.status);
 
     if (!response.ok) {
       if (response.status === 401) {
@@ -70,7 +76,7 @@ export async function initializeCsrf(force = false): Promise<void> {
       throw new ApiError(
         response.status,
         "csrf_initialization_failed",
-        "Unable to restore your CSRF token. Please log in again."
+        "Unable to restore CSRF token. Please log in again."
       );
     }
 
@@ -80,11 +86,16 @@ export async function initializeCsrf(force = false): Promise<void> {
       throw new ApiError(
         403,
         "csrf_token_missing",
-        "The server did not return a valid CSRF token."
+        "The backend did not return a valid CSRF token."
       );
     }
 
     setCsrfToken(data.csrf_token);
+
+    console.log("[CSRF] Token successfully stored:", {
+      available: Boolean(csrfTokenValue),
+      length: csrfTokenValue.length,
+    });
   })();
 
   try {
@@ -99,6 +110,7 @@ export async function api<T>(
   opts: Opts = {}
 ): Promise<T> {
   const method = (opts.method ?? "GET").toUpperCase();
+
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...opts.headers,
@@ -119,6 +131,7 @@ export async function api<T>(
 
   if (unsafe && !isLogin && !isLogout) {
     if (!csrfTokenValue) {
+      console.log("[CSRF] Token missing. Initializing automatically...");
       await initializeCsrf();
     }
 
@@ -130,8 +143,18 @@ export async function api<T>(
       );
     }
 
-   headers["X-CSRF-Token"] = csrfTokenValue;
+    headers["X-CSRF-Token"] = csrfTokenValue;
   }
+
+  // Diagnostic logging: never print the actual token.
+  console.log("[API REQUEST DEBUG]", {
+    url: `${BASE}/api${path}`,
+    method,
+    csrfTokenAvailable: Boolean(csrfTokenValue),
+    csrfTokenLength: csrfTokenValue.length,
+    csrfHeaderPresent: Boolean(headers["X-CSRF-Token"]),
+    csrfHeaderLength: headers["X-CSRF-Token"]?.length ?? 0,
+  });
 
   let res: Response;
 
@@ -143,8 +166,10 @@ export async function api<T>(
       signal: opts.signal,
       credentials: "include",
     });
-  } catch (e) {
-    if ((e as Error).name === "AbortError") throw e;
+  } catch (error) {
+    if ((error as Error).name === "AbortError") {
+      throw error;
+    }
 
     throw new ApiError(
       0,
@@ -175,6 +200,12 @@ export async function api<T>(
       };
       detail?: string;
     } | null;
+
+    console.error("[API ERROR]", {
+      path,
+      status: res.status,
+      response: payload,
+    });
 
     if (res.status === 401 && !isLogin) {
       clearCsrfToken();
