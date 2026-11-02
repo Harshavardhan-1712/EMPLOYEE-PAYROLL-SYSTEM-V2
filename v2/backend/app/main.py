@@ -18,7 +18,11 @@ from .security.deps import get_settings_dep
 from .security.ratelimit import LoginLimiter
 from .services.payroll_rules import to_paise
 from .services.settings_store import DEFAULTS
+import os
 
+from sqlalchemy import inspect, text, select
+from .models import Base, Setting, User
+from .security.passwords import hash_password
 
 # Every router mounted under /api. The permission-matrix test walks this list (and cross-checks it against OpenAPI).
 ROUTERS = [health.router, auth.router, employees.router, payroll_runs.router, payslips.router, analytics.router, reports.router, users.router, admin.router]
@@ -37,6 +41,48 @@ def ensure_defaults(engine: Engine, settings: Settings) -> None:
                 value = str(to_paise(settings.default_overtime_rate)) if key == "overtime_rate_paise" else default
                 s.add(Setting(key=key, value=value))
         s.commit()
+        
+def ensure_bootstrap_admin(engine: Engine) -> None:
+    """Create the initial admin from protected deployment environment variables."""
+    username = os.environ.get("PV2_ADMIN_USERNAME")
+    full_name = os.environ.get("PV2_ADMIN_FULL_NAME")
+    password = os.environ.get("PV2_ADMIN_PASSWORD")
+
+    # Bootstrap is optional, but all three values must be provided together.
+    if not any((username, full_name, password)):
+        return
+
+    if not all((username, full_name, password)):
+        raise RuntimeError("All PV2_ADMIN_USERNAME, PV2_ADMIN_FULL_NAME and PV2_ADMIN_PASSWORD values are required.")
+
+    username = username.strip()
+    full_name = full_name.strip()
+
+    if not username or not full_name:
+        raise RuntimeError("Admin username and full name cannot be empty.")
+
+    with Session(engine) as session:
+        existing = session.scalar(
+            select(User).where(User.username == username)
+        )
+
+        if existing:
+            print("Admin bootstrap skipped: configured username already exists.")
+            return
+
+        admin = User(
+            username=username,
+            full_name=full_name,
+            password_hash=hash_password(password),
+            role="admin",
+            is_active=True,
+            is_sample=False,
+        )
+
+        session.add(admin)
+        session.commit()
+
+        print(f"Initial admin account created: {username}")        
 
 
 def create_app(settings: Settings | None = None, engine: Engine | None = None) -> FastAPI:
@@ -47,6 +93,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         ensure_defaults(engine, settings)
+        ensure_bootstrap_admin(engine)
         yield
 
     app = FastAPI(title="Employee Payroll Management System V2", version="2.0.0-dev", lifespan=lifespan,

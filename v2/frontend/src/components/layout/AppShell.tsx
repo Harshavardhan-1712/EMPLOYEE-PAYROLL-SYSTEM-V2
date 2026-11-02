@@ -27,7 +27,7 @@ export function AppShell() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="sidebar__brand"><span>Payroll Management</span></div>
+        <div className="sidebar__brand"><span>PayLedger</span></div>
         <nav aria-label="Primary">
           {NAV.filter((n) => can(n.perm)).map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className="nav-link" title={label}>
